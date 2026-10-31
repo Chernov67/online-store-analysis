@@ -1,0 +1,349 @@
+
+	ADVANCED ANALYSIS
+
+Business goal:
+-- Perform advanced analysis of sales,
+-- customer behavior, and business performance
+-- using aggregated and time-based data.
+
+
+
+1. Monthly Revenue Growth
+-- Business question:
+-- How did monthly revenue change compared to the previous month?
+
+WITH totals_month AS(
+	SELECT 
+		SUM(price_at_purchase * quantity) AS revenue,
+		DATE_TRUNC('month', order_date) AS order_month
+	FROM order_items AS oi
+	JOIN orders AS o
+		ON o.order_id = oi.order_id
+	WHERE status = 'completed'
+	GROUP BY order_month
+),
+
+monthly_comparison AS(
+	SELECT 
+		revenue,
+		order_month,
+		LAG(revenue) OVER (
+	    	ORDER BY order_month
+		) AS previous_month_revenue
+	FROM totals_month
+	ORDER BY order_month
+)
+
+SELECT
+    order_month,
+    revenue,
+    previous_month_revenue,
+    ROUND(
+        (revenue - previous_month_revenue) * 100.0
+        / previous_month_revenue,
+        2
+    ) AS revenue_growth_pct
+FROM monthly_comparison
+ORDER BY order_month;
+
+
+2. Monthly Orders Growth
+-- Business question:
+-- How did the number of orders change compared to the previous month?
+
+WITH totals AS(
+	SELECT
+		COUNT(DISTINCT order_id) AS orders_count,
+		DATE_TRUNC('month', order_date) AS order_month
+	FROM orders
+	WHERE status = 'completed'
+	GROUP BY order_month 
+),
+
+growth AS(
+	SELECT
+		LAG(orders_count) OVER (
+			ORDER BY order_month
+		) AS previous_month_orders,
+		orders_count,
+		order_month
+	FROM totals
+)
+
+SELECT
+	order_month,
+	orders_count,
+	previous_month_orders,
+	ROUND((orders_count - previous_month_orders) * 100.0 / previous_month_orders, 2) AS orders_growth_pct
+FROM growth;
+
+
+3. Revenue Contribution by Category
+-- Business question:
+-- How much does each category contribute to total revenue?
+
+WITH totals AS(
+	SELECT
+		category_name,
+		SUM(price_at_purchase * quantity) AS revenue
+	FROM order_items AS oi
+	JOIN products AS p
+		ON p.product_id = oi.product_id
+	JOIN orders AS o
+		ON o.order_id = oi.order_id
+	JOIN categories AS c
+		ON c.category_id = p.category_id
+	WHERE status = 'completed'
+	GROUP BY category_name 
+)
+
+SELECT
+    category_name,
+    revenue,
+	revenue * 100.0 / SUM(revenue) OVER () AS revenue_share_pct
+FROM totals;
+
+
+4. Top Product per Category
+-- Business question:
+-- What is the top-selling product in each category?
+
+WITH product_revenue AS (
+	SELECT
+		c.category_name,
+		p.product_name,
+		SUM(oi.price_at_purchase * oi.quantity) AS revenue
+	FROM order_items AS oi
+	JOIN products AS p
+		ON p.product_id = oi.product_id
+	JOIN categories AS c
+		ON c.category_id = p.category_id
+	JOIN orders AS o
+		ON o.order_id = oi.order_id
+	WHERE o.status = 'completed'
+	GROUP BY
+		c.category_name,
+		p.product_name
+),
+
+ranked_products AS (
+	SELECT
+		category_name,
+		product_name,
+		revenue,
+	ROW_NUMBER() OVER (
+		PARTITION BY category_name
+		ORDER BY revenue DESC
+	) AS product_rank
+	FROM product_revenue
+)
+
+SELECT
+	category_name,
+	product_name,
+	revenue
+FROM ranked_products
+WHERE product_rank = 1
+ORDER BY revenue DESC;
+
+
+5. Customer Ranking by Revenue
+-- Business question:
+-- Who are the highest-value customers by revenue?
+
+WITH customer_revenue AS (
+	SELECT
+		customer_id,
+		SUM(price_at_purchase * quantity) AS revenue
+	FROM order_items AS oi
+	JOIN orders AS o
+		ON o.order_id = oi.order_id
+	WHERE status = 'completed'
+	GROUP BY customer_id	
+)
+
+SELECT
+    customer_id,
+    revenue,
+    RANK() OVER (
+        ORDER BY revenue DESC
+    ) AS customer_rank
+FROM customer_revenue
+ORDER BY customer_rank;
+
+
+6. Repeat vs One-time Customers
+-- Business question:
+-- How many customers are repeat customers
+-- and how many made only one purchase?
+
+WITH total_orders AS(
+	SELECT
+		customer_id,
+		COUNT(DISTINCT order_id) AS orders_count
+	FROM orders AS o
+	WHERE status = 'completed'
+	GROUP BY customer_id
+),
+
+customer_types AS(
+	SELECT 
+	    customer_id,
+	    orders_count, 
+	    CASE
+	        WHEN orders_count >= 2 THEN 'Repeat'
+	        ELSE 'One-time'
+	    END AS customer_type
+	FROM total_orders
+)
+
+SELECT
+    customer_type,
+    COUNT(*) AS customers_count
+FROM customer_types
+GROUP BY customer_type;
+
+
+7. Customer Retention
+-- Business question:
+-- What percentage of customers made a repeat purchase?
+
+WITH first_orders AS (
+	SELECT
+		customer_id,
+		MIN(order_date) AS first_order_date
+	FROM orders
+	WHERE status = 'completed'
+	GROUP BY customer_id
+),
+
+second_orders AS (
+	SELECT
+		o.customer_id,
+		MIN(o.order_date) AS second_order_date
+	FROM orders AS o
+	JOIN first_orders AS f
+		ON f.customer_id = o.customer_id
+	WHERE o.status = 'completed'
+		AND o.order_date > f.first_order_date
+	GROUP BY o.customer_id
+),
+
+customer_types AS (
+	SELECT
+		f.customer_id,
+		CASE
+			WHEN s.second_order_date IS NOT NULL THEN 'Repeat'
+			ELSE 'One-time'
+		END AS customer_type
+	FROM first_orders AS f
+	LEFT JOIN second_orders AS s
+	ON s.customer_id = f.customer_id
+)
+SELECT
+    customer_type,
+    COUNT(*) AS customers_count,
+    ROUND(
+        COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (),
+        2
+    ) AS customer_share_pct
+FROM customer_types
+GROUP BY customer_type;
+
+
+8. Revenue Moving Average
+-- Business question:
+-- What is the average revenue over the last 3 months?
+
+WITH monthly_revenue AS (
+    SELECT
+        DATE_TRUNC('month', o.order_date) AS order_month,
+        SUM(oi.price_at_purchase * oi.quantity) AS revenue
+    FROM order_items AS oi
+    JOIN orders AS o
+        ON o.order_id = oi.order_id
+    WHERE o.status = 'completed'
+    GROUP BY order_month
+)
+
+SELECT
+    order_month,
+    revenue,
+    AVG(revenue) OVER (
+        ORDER BY order_month
+        ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+    ) AS moving_avg_3_months
+FROM monthly_revenue
+ORDER BY order_month;
+
+
+9. Average Days Between Orders
+-- Business question:
+-- How many days, on average, pass between a customer's orders? 
+
+WITH customer_orders AS (
+	SELECT
+		o.customer_id,
+		o.order_id,
+		o.order_date,
+		LAG(o.order_date) OVER (
+			PARTITION BY o.customer_id
+			ORDER BY o.order_date
+		) AS previous_order_date
+	FROM orders AS o
+	WHERE o.status = 'completed'
+),
+
+order_intervals AS (
+	SELECT
+		customer_id,
+		order_id,
+		order_date,
+		previous_order_date,
+		order_date - previous_order_date AS days_between_orders
+FROM customer_orders
+WHERE previous_order_date IS NOT NULL
+)
+
+SELECT
+	customer_id,
+	ROUND(AVG(days_between_orders), 2) AS avg_days_between_orders
+FROM order_intervals
+GROUP BY customer_id
+ORDER BY avg_days_between_orders;
+
+
+10. Average AOV by Customer Segment
+-- Business question:
+-- What is the average order value for each customer segment?
+
+WITH customer_metrics AS (
+    SELECT
+        o.customer_id,
+        SUM(oi.price_at_purchase * oi.quantity) AS revenue,
+        COUNT(DISTINCT o.order_id) AS orders_count
+    FROM order_items AS oi
+    JOIN orders AS o
+        ON o.order_id = oi.order_id
+    WHERE o.status = 'completed'
+    GROUP BY o.customer_id
+),
+
+customer_segments AS (
+    SELECT
+        customer_id,
+        ROUND(revenue / orders_count, 2) AS customer_aov,
+        CASE
+            WHEN revenue >= 50000 THEN 'High Value'
+            WHEN revenue >= 20000 THEN 'Medium Value'
+            ELSE 'Low Value'
+        END AS customer_segment
+    FROM customer_metrics
+)
+
+SELECT
+    customer_segment,
+    ROUND(AVG(customer_aov), 2) AS avg_aov
+FROM customer_segments
+GROUP BY customer_segment
+ORDER BY avg_aov DESC;

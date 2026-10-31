@@ -1,0 +1,140 @@
+
+   SALES ANALYSIS
+
+Business goal:
+-- Analyze the store's sales performance
+-- based on completed orders.
+
+
+
+1. Total Revenue
+-- Business question:
+-- What is the total revenue generated
+-- by completed orders?
+
+SELECT SUM(quantity * price_at_purchase)
+FROM order_items AS o_i
+JOIN orders AS o
+	ON o.order_id = o_i.order_id
+WHERE status = 'completed';
+
+
+2. Completed Orders
+-- Business question:
+-- How many orders have been completed?
+
+SELECT 
+    COUNT(order_id) AS completed_orders
+FROM orders
+WHERE status = 'completed';
+
+
+3. Units Sold
+-- Business question:
+-- How many units were sold in completed orders?
+
+SELECT 
+    SUM(quantity) AS units_sold
+FROM order_items AS o_i
+JOIN orders AS o
+    ON o.order_id = o_i.order_id
+WHERE status = 'completed';
+
+
+4. Average Order Value
+-- Business question:
+-- What is the average value of a completed order?
+
+SELECT 
+    SUM(quantity * price_at_purchase) / COUNT(DISTINCT o.order_id) AS avg_order_value
+FROM order_items AS oi
+JOIN orders AS o
+    ON o.order_id = oi.order_id
+WHERE status = 'completed';
+
+
+5. Daily Revenue
+-- Business question:
+-- How much revenue was generated on each day from completed orders?
+
+SELECT 
+    order_date,
+    SUM(quantity * price_at_purchase) AS daily_revenue
+FROM order_items AS oi
+JOIN orders AS o
+    ON o.order_id = oi.order_id
+WHERE status = 'completed'
+GROUP BY order_date
+ORDER BY order_date DESC;
+
+
+6. Monthly Revenue
+-- Business question:
+-- How much revenue was generated in each month
+-- from completed orders?
+
+SELECT 
+    DATE_TRUNC('month', order_date) AS date_month,
+    SUM(quantity * price_at_purchase) AS monthly_revenue
+FROM order_items AS oi
+JOIN orders AS o
+    ON o.order_id = oi.order_id
+WHERE status = 'completed'
+GROUP BY date_month
+ORDER BY date_month DESC;
+
+7. Monthly Orders
+-- Business question:
+-- How many completed orders were placed in each month?
+
+SELECT 
+    DATE_TRUNC('month', order_date) AS date_month,
+    COUNT(DISTINCT order_id) AS completed_orders
+FROM orders AS o
+WHERE status = 'completed'
+GROUP BY date_month
+ORDER BY date_month DESC;
+
+
+8. Monthly Average Order Value
+-- Business question:
+-- What was the average order value in each month?
+
+SELECT 
+	DATE_TRUNC('month', order_date) AS date_month,
+	SUM (price_at_purchase * quantity) / COUNT (DISTINCT o.order_id) AS avg_order_value
+FROM orders AS o
+JOIN order_items AS oi
+ON oi.order_id = o.order_id
+WHERE status = 'completed'
+GROUP BY date_month
+ORDER BY date_month DESC;
+
+
+9. Revenue by Order Status
+-- Business question:
+-- How much revenue is associated with each order status?
+
+SELECT 
+    status,
+    SUM(price_at_purchase * quantity) AS revenue
+FROM orders AS o
+JOIN order_items AS oi
+    ON oi.order_id = o.order_id
+GROUP BY status;
+
+
+10. Top Sales Day
+-- Business question:
+-- Which day generated the highest revenue?
+
+SELECT 
+    order_date,
+    SUM(price_at_purchase * quantity) AS revenue
+FROM orders AS o
+JOIN order_items AS oi
+    ON oi.order_id = o.order_id
+WHERE status = 'completed'
+GROUP BY order_date
+ORDER BY revenue DESC
+LIMIT 1;

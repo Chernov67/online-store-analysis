@@ -1,0 +1,189 @@
+
+	CUSTOMER ANALYSIS
+
+Business goal:
+-- Analyze customer purchasing behavior,
+-- revenue, and order activity
+-- based on completed orders.
+
+
+
+1. Customer Revenue
+-- Business question:
+-- How much revenue does each customer generate?
+
+SELECT 
+	SUM(price_at_purchase * quantity) AS revenue,
+	customer_id
+FROM order_items AS oi
+JOIN orders AS o
+ON o.order_id = oi.order_id
+WHERE o.status = 'completed'
+GROUP BY o.customer_id
+ORDER BY revenue DESC;
+
+
+2. Orders per Customer
+-- Business question:
+-- How many completed orders does each customer place?
+
+SELECT 
+	COUNT(DISTINCT o.order_id) AS orders_per_customer,
+	customer_id
+FROM order_items AS oi
+JOIN orders AS o
+ON o.order_id = oi.order_id
+WHERE o.status = 'completed'
+GROUP BY o.customer_id
+ORDER BY orders_per_customer DESC;
+
+
+3. Customer Average Order Value
+-- Business question:
+-- What is the average order value for each customer?
+
+WITH customer_totals AS (
+	SELECT
+		o.customer_id,
+		SUM(oi.price_at_purchase * oi.quantity) AS revenue,
+		COUNT(DISTINCT o.order_id) AS orders_per_customer
+	FROM order_items AS oi
+	JOIN orders AS o
+	ON o.order_id = oi.order_id
+	WHERE o.status = 'completed'
+	GROUP BY o.customer_id
+)
+
+SELECT
+	customer_id,
+	ROUND(revenue / orders_per_customer, 2) AS customer_aov
+FROM customer_totals
+ORDER BY customer_aov DESC;
+
+4. Unique Products per Customer
+-- Business question:
+-- How many unique products does each customer purchase?
+
+SELECT
+	o.customer_id,
+	COUNT(DISTINCT p.product_id) AS products_per_customer
+FROM products AS p
+JOIN order_items AS oi
+	ON oi.product_id = p.product_id
+JOIN orders AS o
+	ON o.order_id = oi.order_id
+WHERE o.status = 'completed'
+GROUP BY o.customer_id
+ORDER BY products_per_customer DESC;
+
+
+5. Customer Purchase Frequency
+-- Business question:
+-- How frequently do customers make purchases?
+
+WITH customer_orders AS (
+    SELECT
+        o.customer_id,
+        o.order_id,
+        o.order_date,
+    LAG(o.order_date) OVER (
+        PARTITION BY o.customer_id
+        ORDER BY o.order_date
+        ) AS previous_order_date
+    FROM orders AS o
+    WHERE o.status = 'completed'
+)
+
+SELECT
+    customer_id,
+    order_id,
+    order_date,
+    previous_order_date,
+    order_date - previous_order_date AS days_between_orders
+FROM customer_orders
+ORDER BY customer_id, order_date;
+
+
+6. Average Days Between Orders
+-- Business question:
+-- What is the average number of days between orders for each customer?
+
+WITH customer_orders AS (
+    SELECT
+        o.customer_id,
+        o.order_id,
+        o.order_date,
+        LAG(o.order_date) OVER (
+            PARTITION BY o.customer_id
+            ORDER BY o.order_date
+        ) AS previous_order_date
+    FROM orders AS o
+    WHERE o.status = 'completed'
+),
+
+customer_intervals AS (
+    SELECT
+        customer_id,
+        order_date - previous_order_date AS days_between_orders
+    FROM customer_orders
+    WHERE previous_order_date IS NOT NULL
+)
+
+SELECT
+	customer_id,
+	ROUND(AVG(days_between_orders), 2) AS avg_days_between_orders
+FROM customer_intervals
+GROUP BY customer_id
+ORDER BY avg_days_between_orders;
+
+
+7. Customer Revenue Share
+-- Business question:
+-- What percentage of total revenue does each customer generate?
+
+WITH per_customer AS (
+	SELECT
+		o.customer_id,
+		SUM(oi.price_at_purchase * oi.quantity) AS customer_rev
+	FROM order_items AS oi
+	JOIN orders AS o
+		ON o.order_id = oi.order_id
+	WHERE o.status = 'completed'
+	GROUP BY o.customer_id
+)
+
+SELECT
+	customer_id,
+	customer_rev AS revenue,
+	ROUND(customer_rev * 100.0 / SUM(customer_rev) OVER (), 2) AS revenue_share_pct
+FROM per_customer
+ORDER BY revenue_share_pct DESC;
+
+
+8. Customer Value Segmentation
+-- Business question:
+-- How can we segment customers based on their purchasing activity?
+
+WITH customer_metrics AS(
+	SELECT 
+		SUM(price_at_purchase * quantity) AS revenue,
+		COUNT(DISTINCT o.order_id) AS orders_count,
+		customer_id
+	FROM order_items AS oi
+	JOIN orders AS o
+		ON o.order_id = oi.order_id
+	WHERE status = 'completed'
+	GROUP BY customer_id
+)
+
+SELECT
+    customer_id,
+    revenue,
+    orders_count,
+    ROUND(revenue / orders_count, 2) AS customer_aov,
+	CASE
+    	WHEN revenue >= 50000 THEN 'High Value'
+    	WHEN revenue >= 20000 THEN 'Medium Value'
+    	ELSE 'Low Value'
+	END AS customer_segment
+FROM customer_metrics;

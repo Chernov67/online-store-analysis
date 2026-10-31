@@ -1,0 +1,194 @@
+
+ PRODUCT ANALYSIS
+
+Business goal:
+-- Analyze product sales and revenue
+-- based on completed orders.
+
+
+
+
+1. Revenue and Units Sold by Product
+-- Business question:
+-- Which products generate the most revenue?
+
+SELECT
+    p.product_name,
+    SUM(oi.quantity) AS units_sold,
+    SUM(oi.quantity * oi.price_at_purchase) AS revenue
+FROM order_items AS oi
+JOIN products AS p
+    ON oi.product_id = p.product_id
+JOIN orders AS o
+    ON o.order_id = oi.order_id
+WHERE o.status = 'completed'
+GROUP BY p.product_name
+ORDER BY revenue DESC;
+
+
+2. Best-Selling Products by Units
+-- Business question:
+-- Which products sell the most units?
+
+SELECT
+    p.product_name,
+    SUM(oi.quantity) AS units_sold
+FROM order_items AS oi
+JOIN products AS p
+    ON oi.product_id = p.product_id
+JOIN orders AS o
+    ON o.order_id = oi.order_id
+WHERE o.status = 'completed'
+GROUP BY p.product_name
+ORDER BY units_sold DESC;
+
+
+3. Average Selling Price by Product
+-- Business question:
+-- What is the average selling price per unit for each product?
+
+SELECT
+    p.product_id,
+    p.product_name,
+    SUM(oi.quantity * oi.price_at_purchase)
+        / SUM(oi.quantity) AS avg_selling_price
+FROM order_items AS oi
+JOIN products AS p
+    ON p.product_id = oi.product_id
+JOIN orders AS o
+    ON o.order_id = oi.order_id
+WHERE o.status = 'completed'
+GROUP BY
+    p.product_id,
+    p.product_name
+ORDER BY avg_selling_price DESC;
+
+
+4. Revenue by Product Category
+-- Business question:
+-- Which product categories generate the most revenue?
+
+SELECT 
+    c.category_name,
+    SUM(oi.price_at_purchase * oi.quantity) AS revenue
+FROM order_items AS oi
+JOIN products AS p
+    ON p.product_id = oi.product_id
+JOIN categories AS c
+    ON c.category_id = p.category_id
+JOIN orders AS o
+    ON o.order_id = oi.order_id
+WHERE o.status = 'completed'
+GROUP BY c.category_name
+ORDER BY revenue DESC;
+
+
+5. Units Sold by Product Category
+-- Business question:
+-- Which product categories sell the most units?
+
+SELECT 
+    c.category_name,
+    SUM(oi.quantity) AS units_sold
+FROM order_items AS oi
+JOIN products AS p
+    ON p.product_id = oi.product_id
+JOIN categories AS c
+    ON c.category_id = p.category_id
+JOIN orders AS o
+    ON o.order_id = oi.order_id
+WHERE o.status = 'completed'
+GROUP BY c.category_name
+ORDER BY units_sold DESC;
+
+
+6. Product Revenue Share
+-- Business question:
+-- What percentage of total revenue does each product category contribute?
+
+WITH category_revenue AS (
+    SELECT
+        c.category_name,
+        SUM(oi.price_at_purchase * oi.quantity) AS revenue
+    FROM order_items AS oi
+    JOIN products AS p
+        ON p.product_id = oi.product_id
+    JOIN categories AS c
+        ON c.category_id = p.category_id
+    JOIN orders AS o
+        ON o.order_id = oi.order_id
+    WHERE o.status = 'completed'
+    GROUP BY c.category_name
+)
+
+SELECT
+    category_name,
+    revenue,
+    ROUND(
+        revenue * 100.0 / SUM(revenue) OVER (),
+        2
+    ) AS revenue_share_pct
+FROM category_revenue
+ORDER BY revenue_share_pct DESC;
+
+
+7. Monthly Revenue by Product
+-- Business question:
+-- How does revenue for each product change over time?
+
+SELECT
+    DATE_TRUNC('month', o.order_date) AS order_month,
+    p.product_id,
+    p.product_name,
+    SUM(oi.quantity * oi.price_at_purchase) AS monthly_revenue
+FROM order_items AS oi
+JOIN orders AS o
+    ON o.order_id = oi.order_id
+JOIN products AS p
+    ON p.product_id = oi.product_id
+WHERE o.status = 'completed'
+GROUP BY
+    DATE_TRUNC('month', o.order_date),
+    p.product_id,
+    p.product_name
+ORDER BY
+    order_month,
+    monthly_revenue DESC;
+
+
+8. Average Order Value (AOV)
+-- Business question:
+-- What is the average order value for completed orders?
+
+WITH order_totals AS (
+	SELECT
+		o.order_id,
+		SUM(price_at_purchase * quantity) AS order_total
+	FROM order_items AS oi 
+	JOIN orders AS o
+	ON o.order_id = oi.order_id
+	WHERE o.status = 'completed'
+	GROUP BY o.order_id
+)
+
+SELECT
+	ROUND(AVG(order_total), 2) AS average_order_value
+FROM order_totals;
+
+
+9. Top Products by Revenue
+-- Business question:
+-- What are the top products by revenue?
+
+SELECT 
+	SUM(price_at_purchase * quantity) AS revenue,
+	product_name
+FROM order_items AS oi
+JOIN orders AS o
+	ON o.order_id = oi.order_id
+JOIN products AS p
+	ON p.product_id = oi.product_id
+WHERE o.status = 'completed'
+GROUP BY product_name
+ORDER BY revenue DESC
+LIMIT 10;
